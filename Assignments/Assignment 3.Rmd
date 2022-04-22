@@ -1,0 +1,116 @@
+---
+title: "Assignment 3"
+author: "Emily MacQuarrie"
+date: "1/30/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(tseries)
+library(fpp)
+library(forecast)
+source("eacf.r")
+```
+
+## Question 1
+```{r data}
+load("usgdp.rda")
+train_data <- subset(usgdp, Year < 2013)
+test_data <- subset(usgdp, Year > 2012)
+# add time series component
+train_data_gdp <- ts(train_data["GDP"], start=1960, frequency=1)
+test_data_gdp <- ts(test_data["GDP"], start=2013, frequency=1)
+```
+
+## Question 2
+```{r plot}
+plot(train_data_gdp, main="US GDP")
+# check Box-Cox lambda
+BoxCox.lambda(train_data_gdp)
+train_data_gdp %>% BoxCox(lambda = 0.2) %>% autoplot()
+train_data_gdp_bc <- BoxCox(train_data_gdp, lambda = 0.2)
+# display tranformed data
+tsdisplay(train_data_gdp_bc)
+```
+The purpose of the Box-Cox transformation is to handle the variation of the data over time. In both the GDP plot, the degree of variation does not appear to change with the level. However, when we apply the Box-Cox lambda function to the data, we find that a lambda of 0.2 is appropriate for this series. This is significant because it is relatively close to 0. Therefore, a Box-Cox tranformation is appropriate to apply to GDP over time.
+
+## Question 3
+```{r differencing}
+# first-order differencing
+train_d1 <- diff(train_data_gdp, lag = 1, differences = 1)
+plot(train_d1)
+# second-order differencing
+train_d2 <- diff(train_data_gdp, lag = 1, differences = 2)
+plot(train_d2)
+# KPSS test for stationarity
+kpss.test(train_d1, null="Trend")
+kpss.test(train_d1, null="Level")
+kpss.test(train_d2, null="Trend")
+kpss.test(train_d2, null="Level")
+```
+Based on the test for first-order differenced data, the null hypothesis is trend stationarity, which we cannot reject because the p-value is 0.1. Thus, the trend is stationary. On the other hand, the null hypothesis for level stationarity can be rejected because the p-value is 0.01. Therefore, the level is not stationary. The second-order differenced data has trend stationarity since we cannot reject the null hypothesis with a p-value of 0.1. It also has level stationarity since we cannot reject the null hypothesis of the level stationarity test with a p-value of 0.1. 
+
+In summary, the first-order differenced data is stationary in the trend but not the level. The second-order differenced data is stationary in both the trend and level. The plots reinforce this finding because the second-order differenced data appears more stationary than the first-order.
+
+## Question 4
+```{r arima}
+# using training data with Box-Cox transformation
+auto_ar <- auto.arima(train_data_gdp_bc, seasonal=FALSE)
+auto_ar
+```
+Since the data is non-seasonal, we can fit an ARIMA non-seasonal model. According to the above, p=1, d=1, and q=0. The results of the auto.arima function suggest that an appropriate model for the transformed training data is a first-order differencing with a first-order Autoregression model. This model has an ar1 of 0.483 and a drift of 20.48.
+
+## Question 5
+```{r eacf}
+eacf(train_data_gdp_bc)
+
+# Arima(1,1,1)
+ar1 <- Arima(train_data_gdp_bc, order=c(1,1,1))
+summary(ar1)
+# Arima(1,2,1)
+ar2 <- Arima(train_data_gdp_bc, order=c(1,2,1))
+summary(ar2)
+# Arima(2,2,1)
+ar3 <- Arima(train_data_gdp_bc, order=c(2,1,1))
+summary(ar3)
+# Arima(2,2,0)
+ar4 <- Arima(train_data_gdp_bc, order=c(2,2,1))
+summary(ar4)
+# Arima(1,2,2)
+ar5 <- Arima(train_data_gdp_bc, order=c(1,1,2))
+summary(ar5)
+# Arima(2,0,0)
+ar6 <- Arima(train_data_gdp_bc, order=c(1,2,2))
+summary(ar6)
+```
+Based on the extended ACF, we can see that the lowest order model match is where (p,q)=(1,1). We may also try (p,q)=(2,1) or (p,q)=(1,2) which are also valid candidates. In total we tried 6 different models, where (p,d,q) was equal to (1,1,1), (1,2,1), (2,1,1), (2,2,1), (1,1,2), and (1,2,2) based on the results from the extended ACF. ARIMA(1,2,1) was the highest performing model with an AIC of 349.07. It even beat the results of the auto.arima function from part 4. This is a first-order autoregression model with first-order moving average and second-order differencing.
+
+
+## Question 6
+```{r forecast}
+# using ARIMA(1,2,1) model for forecasting years 2013-2017
+arfc <- forecast(train_data_gdp_bc, h=5, level=c(80,95), model=ar2)
+plot(arfc)
+summary(arfc)
+```
+The above figure is the plot of the GDP forecasts in the training data with 80 and 95% confidence levels using the ARIMA(1,2,1) model. According to the forecast, the GDP will continually increase over the next 5 years.
+
+## Question 7
+```{r evaluate}
+# perform a reverse transformation with previously used lambda=0.231
+estimate <- InvBoxCox(arfc$mean, lambda=0.2)
+error <- test_data_gdp - estimate
+plot(error)
+```
+The errors appear to increase until 2015, experiences a smaller error in 2016, then continues to climb in 2017.
+
+## Question 8
+```{r sse}
+# sum of squared errors
+sum(error^2)
+```
+The sum of squared errors for the forecast between 2013 and 2017 is 8.192e22.

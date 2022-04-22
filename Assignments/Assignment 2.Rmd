@@ -1,0 +1,79 @@
+---
+title: "Assignment 2"
+author: "Emily MacQuarrie"
+date: "1/23/2022"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(ggplot2)
+library(tseries)
+library(fpp)
+library(forecast)
+```
+
+## Question 1
+```{r data}
+load("visitors.rda")
+
+keep_data <- c("Arrivals")
+visitors <- visitors[keep_data]
+quarterly <- ts(visitors, start=1981, frequency=4)
+plot(quarterly, main="Quarterly Arrivals",panel.first = grid())
+```
+The data has an overall positive trend with a seasonal pattern. The trend seems to stabilize at around 115000. 
+
+## Question 2
+This dataset appears to most closely exhibit multiplicative behavior since the magnitude of the cycles looks to start small and then increase as time progresses. Thus, a suitable method for this dataset would be the Holt-Winters additive seasonal method. However, the multiplicative quality of the graph is very subtle and not very strong. 
+
+## Question 3
+### Linear trend with additive seasonality
+```{r hw1}
+hw_add <- hw(quarterly, h=16, seasonal="additive")
+```
+### Linear trend with multiplicative seasonality
+```{r hw2}
+hw_mult <- hw(quarterly, h=16, seasonal="multiplicative")
+```
+### Linear trend with additive seasonality and damping
+```{r hw3}
+hw_add_d <- hw(quarterly, h=16, seasonal="additive", damped=TRUE)
+```
+
+### Linear trend with multiplicative seasonality and damping
+```{r hw4}
+hw_mult_d <- hw(quarterly, h=16, seasonal="multiplicative", damped=TRUE)
+```
+### Seasonal naive method
+```{r naive}
+naive <- snaive(quarterly, h=16)
+```
+## Question 4
+```{r accuracy}
+# Holt-Winters additive model
+accuracy(hw_add)
+# Holt-Winters multiplicative model
+accuracy(hw_mult)
+# Holt-Winters additive model with damping
+accuracy(hw_add_d)
+# Holt-Winters multiplicative model with damping
+accuracy(hw_mult_d)
+# Seasonal naive method
+accuracy(naive)
+```
+  The Holt-Winters' additive method had an RMSE of 7542.66, while the multiplicative version had an RMSE of 7550.96. When we include damping, the additive method has an RMSE of 7552.06, and the multiplicative method has an RMSE of 7460. The seasonal naive method has an RMSE of 10298.98. 
+  The best performing model is the one that minimizes errors. Therefore, we should choose the model with the lowest RMSE. The Holt-Winters' multiplicative method with damping performs the best because of this reason.
+
+## Question 5
+```{r residuals}
+# Holt-Winters multiplicative model with damping
+checkresiduals(hw_mult_d)
+summary(hw_mult_d)
+```
+In the Holt-Winters' multiplicative method with damping, the residuals appear to have a mean near 0, but they exhibit autocorrelation at lags 4, 5, 9, and 16 as shown in the ACF graph. This indicates that the residuals do not accurately represent white noise. The results of this method yield an alpha of 0.52, a beta of 0.003, and a gamma close to 0. This suggests that the series has a small trend but no seasonality.

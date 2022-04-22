@@ -1,0 +1,143 @@
+---
+title: "Assignment 4"
+author: "Emily MacQuarrie"
+date: "2/6/2022"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries}
+library(readxl)
+library(tseries)
+library(forecast)
+source("eacf.r")
+```
+
+## Question 1
+```{r data}
+dates <- c("June-16", "June-17", "June-18", "June-19", "June-20", "June-21", "June-22", 
+           "June-23", "June-24", "June-25", "June-26", "June-27", "June-28",
+           "June-29", "June-30", "July-1")
+path <- './Traffic\ Flow\ Data/I-57-2013-'
+
+comb_data <- data.frame()
+for (date in dates) {
+  df <- read_excel(paste(path, date, '.xls', sep=''), range="C3:E29")
+  # only select time and column 3 and remove first 2 rows
+  df <- df[-c(1,2), c(1,3)]
+  # convert to numeric data type
+  df$I80E <- as.numeric(df$I80E)
+  comb_data <- rbind(comb_data, df)
+}
+hourly_ts <- ts(comb_data$I80E,frequency=1)
+plot(hourly_ts)
+```
+
+## Question 2
+```{r split data}
+# data between 6-16-13 and 6-30-13
+train <- window(hourly_ts, start=1, end=360)
+tsdisplay(train)
+# data on 7-1-13
+test <- window(hourly_ts, start=361, end=384)
+tsdisplay(test)
+```
+  The ACF plot of the training data suggests that there is high seasonality every 24 periods. At lag 1 at 24 there is high positive autocorrelation, and at period 12, there is high negative autocorrelation. The PACF plot of the training data shows that lags 1 and 2 have significant partial autocorrelation
+  The ACF plot of the testing data appears to decay, but since there are few data points, it is difficult to generalize a trend. The PACF plot of the testing data shows that lags 1 and 2 also have significant partial autocorrelation.
+  
+## Question 3
+```{r arima}
+auto_ar <- auto.arima(train, seasonal=FALSE)
+auto_ar
+checkresiduals(auto_ar)
+shapiro.test(auto_ar$residuals)
+
+eacf(train)
+# Arima(2,0,0)
+ar1 <- Arima(train, order=c(2,0,0))
+summary(ar1)
+checkresiduals(ar1)
+shapiro.test(ar1$residuals)
+# Arima(2,1,0)
+ar2 <- Arima(train, order=c(2,1,0))
+summary(ar2)
+checkresiduals(ar2)
+shapiro.test(ar2$residuals)
+# Arima(2,0,1)
+ar3 <- Arima(train, order=c(2,0,1))
+summary(ar3)
+checkresiduals(ar3)
+shapiro.test(ar3$residuals)
+# Arima(2,1,1)
+ar4 <- Arima(train, order=c(2,1,1))
+summary(ar4)
+checkresiduals(ar4)
+shapiro.test(ar4$residuals)
+# Arima(3,0,1)
+ar5 <- Arima(train, order=c(3,0,1))
+summary(ar5)
+checkresiduals(ar5)
+shapiro.test(ar5$residuals)
+```
+The auto arima function returns the parameters p=2, d=0, and q=3 as the best fit. An ARMA model with p=2 seems appropriate since the PACF function drops at lag 2. An MA model with q=3 also seems feasibly since the ACF function becomes much less significant at lags 4 and 5. However, it is less obvious since the function decays slower than the PACF. The AICc value for this model is 4455.88, and the BIC value is 4482.77. According to the Ljung-Box test, however, the time series residuals are not independently distributed. There is especially high autocorrelation of residuals at lags 23-25. Furthermore, the Shapiro-Wilk tests demonstrates that the residuals of the time series are likely not normally distributed.
+
+Based on the information from the EACF results, I tested the following models: ARIMA(2,0,0), ARIMA(2,1,0), ARIMA(2,0,1), ARIMA(2,1,1), ARIMA(3,0,1). All of the AICc values of these models were larger than the ARIMA(2,0,3) model. However, ARIMA(3,0,1) outperformed ARIMA(2,0,3) in terms of the BIC measure. The BIC of ARIMA(3,0,1) was 4481.19.
+
+For ARIMA(2,0,0), the Ljung-Box tests shows that the residuals are likely independently distributed. However, the Shapiro-Wilk test shows that they are not normally distributed. The residuals still seem to have a high autocorrelation at lags 23-24. For ARIMA(2,1,0), residuals do not appear to be independently distributed or normally distributed, and the high autocorrelation still exists in the later lags. For ARIMA(2,0,1), the residuals also do not appear to be independently or normally distributed, and there exists high autocorrelation at the later lags in addition to lags 11-13. For ARIMA(2,1,1), the residuals appear to be independently distributed but not normally distributed, and they have the same high autocorrelation at lags 11-13 and 23-25. ARIMA(3,0,1) is not independently or normally distributed and seems to have the most autocorrelation amongst the lags, especially in lags 9, 10, 12, 23, 24, and 25.
+
+## Question 4
+```{r day of the week}
+dow_train <- ts(comb_data$I80E[c(1:360)],frequency=168)
+dow_ar <- auto.arima(dow_train, seasonal=TRUE)
+dow_ar
+```
+The resulting seasonal model by day of the week is ARIMA(0,1,2)(0,1,0)_168.
+
+## Question 5
+```{r forecast day of week}
+dow_test <- ts(comb_data$I80E[c(361:384)],frequency=168)
+forecast_dow <- forecast(dow_train, h=24, level=c(80,95), model=dow_ar)
+plot(forecast_dow)
+summary(forecast_dow)
+```
+The above plot is the forecast for Monday July 1, 2013 with a 80-95% confidence interval with model ARIMA(0,1,2)(0,1,0)_168.
+
+## Question 6
+```{r hourly}
+hourly_train <- ts(comb_data$I80E[c(1:360)],frequency=24)
+hourly_ar <- auto.arima(hourly_train, seasonal=TRUE)
+hourly_ar
+```
+The resulting seasonal model by hour of the day is ARIMA(2,0,2)(2,1,0)_24.
+
+## Question 7
+```{r forecast hourly}
+hourly_test <- ts(comb_data$I80E[c(361:384)],frequency=24)
+forecast_hourly <- forecast(hourly_train, h=24, level=c(80,95), model=hourly_ar)
+plot(forecast_hourly)
+summary(forecast_hourly)
+```
+The above plot is the forecast for Monday July 1, 2013 with a 80-95% confidence interval with model ARIMA(2,0,2)(2,1,0)_24.
+
+## Question 8
+```{r model comparison}
+# actual values for July 1 8:00, 9:00, 17:00, 18:00
+actual <- test[c(8,9,17,18)]
+# predicted values for day of the week
+dow_estimate <- forecast_dow$mean[c(8,9,17,18)]
+# predicted values for hourly
+hourly_estimate <- forecast_hourly$mean[c(8,9,17,18)]
+
+# sum of squared errors for day of the week
+error_dow <- actual - dow_estimate
+sum(error_dow^2)
+# sum of squared errors for hourly
+error_hourly <- actual - hourly_estimate
+sum(error_hourly^2)
+```
+The sum of squared errors for the day of the week model is much lower than that of the hourly model for the rush hour times (9:00, 9:00, 17:00, 18:00). Therefore, we can say that it is more likely that the day of the week model is better at predicting rush hour traffic than the hourly model.
+

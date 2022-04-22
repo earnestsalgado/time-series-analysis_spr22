@@ -1,0 +1,170 @@
+---
+title: "Assignment 6"
+author: "Emily MacQuarrie"
+date: "2/21/2022"
+output: word_document
+---
+
+```{r libraries}
+library(tseries)
+library(forecast)
+library(ggplot2)
+```
+
+## Question 1
+```{r data}
+load("./visitors_monthly.rda")
+# plot data
+monthly_ts <- ts(visitors$x, start=c(1985,5), frequency=12)
+plot(monthly_ts)
+# Box-Cox transformation
+BoxCox.lambda(monthly_ts)
+monthly_bc <- BoxCox(monthly_ts, lambda = 0.3)
+plot(monthly_bc)
+```
+
+The untransformed time series appears to be yearly seasonal and has increasing variance as time increases. In addition, the series has a positive trend. When we transform the dataset with the Box-Cox method, the variance appears to be more constant with seasonality and a positive trend.
+
+## Question 2
+```{r models}
+# auto arima
+ar1 <- auto.arima(monthly_ts, seasonal=TRUE, lambda="auto")
+ar1
+# exponential smoothing
+es1 <- ets(monthly_ts, lambda="auto")
+es1
+```
+According to the auto.arima function, the best seasonal model for this data is ARIMA(0,1,1)(2,1,1)[12]. The best model for exponential smoothing according to the ets function has alpha=0.61, beta=0.001, and gamma=0.16.
+
+## Question 3
+```{r cross validation}
+defaultW <- getOption("warn") 
+options(warn = -1)
+
+min_samples <- 160
+n <- length(monthly_ts)
+# forecasting horizon length
+h=12
+# period length
+p=12
+iterations=80
+st <- tsp(monthly_ts)[1]+(min_samples-2)/p
+
+errors_1 <- matrix(NA,n-min_samples,h)
+errors_2 <- matrix(NA,n-min_samples,h)
+errors_3 <- matrix(NA,n-min_samples,h)
+errors_4 <- matrix(NA,n-min_samples,h)
+
+mae_1 <- matrix(NA,n-min_samples,h)
+mae_2 <- matrix(NA,n-min_samples,h)
+mae_3 <- matrix(NA,n-min_samples,h)
+mae_4 <- matrix(NA,n-min_samples,h)
+
+rmse_1 <- matrix(NA,n-min_samples,h)
+rmse_2 <- matrix(NA,n-min_samples,h)
+rmse_3 <- matrix(NA,n-min_samples,h)
+rmse_4 <- matrix(NA,n-min_samples,h)
+
+aicc_1 <- matrix(NA,n-min_samples)
+aicc_2 <- matrix(NA,n-min_samples)
+aicc_3 <- matrix(NA,n-min_samples)
+aicc_4 <- matrix(NA,n-min_samples)
+
+for(i in 1:(n-min_samples)) {
+  # expanding window
+  train_e <- window(monthly_ts, end=st + i/p)
+  # sliding window
+  train_s <- window(monthly_ts, start=st+(i-min_samples+1)/p, end=st+i/p)
+  test <- window(monthly_ts, start=st + (i+1)/p, end=st + (i+h)/p)
+  
+  # ARIMA model, expanding window
+  fit_1 <- Arima(train_e, order=c(1,0,1), seasonal=list(order=c(0,1,2), period=p),
+                include.drift=TRUE, lambda="auto", method="ML")
+  fcast_1 <- forecast(fit_1, h=h)
+  # one year forecast horizon error
+  errors_1[i,1:length(test)] <- fcast_1[['mean']]-test
+  mae_1[i,1:length(test)] <- abs(errors_1[i,1:length(test)])
+  rmse_1[i,1:length(test)] <- sqrt(mean((errors_1[i,1:length(test)])^2))
+  # model AICc
+  aicc_1[i] <- fcast_1$model$aicc
+  
+  # ARIMA model, sliding window
+  fit_2 <- Arima(train_s, order=c(1,0,1), seasonal=list(order=c(0,1,2), period=p),
+                include.drift=TRUE, lambda="auto", method="ML")
+  fcast_2 <- forecast(fit_2, h=h)
+  # one year forecast horizon error
+  errors_2[i,1:length(test)] <- fcast_2[['mean']]-test
+  mae_2[i,1:length(test)] <- abs(errors_2[i,1:length(test)])
+  rmse_2[i,1:length(test)] <- sqrt(mean((errors_2[i,1:length(test)])^2))
+  # model AICc
+  aicc_2[i] <- fcast_2$model$aicc
+  
+  # exponential smoothing model, expanding window
+  fit_3 <- ets(train_e, model="MAM")
+  fcast_3 <- forecast(fit_3, h=h)
+  # one year forecast horizon error
+  errors_3[i,1:length(test)] <- fcast_3[['mean']]-test
+  mae_3[i,1:length(test)] <- abs(errors_3[i,1:length(test)])
+  rmse_3[i,1:length(test)] <- sqrt(mean((errors_3[i,1:length(test)])^2))
+  # model AICc
+  aicc_3[i] <- fcast_3$model$aicc
+  
+  # exponential smoothing model, sliding window
+  fit_4 <- ets(train_s, model="MAM")
+  fcast_4 <- forecast(fit_4, h=h)
+  # one year forecast horizon error
+  errors_4[i,1:length(test)] <- fcast_4[['mean']]-test
+  mae_4[i,1:length(test)] <- abs(errors_4[i,1:length(test)])
+  rmse_4[i,1:length(test)] <- sqrt(mean((errors_4[i,1:length(test)])^2))
+  # model AICc
+  aicc_4[i] <- fcast_4$model$aicc
+}
+
+options(warn = defaultW)
+```
+
+```{r errors}
+# one year forecast horizon error for each expanding window in the ARIMA model
+errors_1
+# estimated AICc for each expanding window in the ARIMA model
+aicc_1
+# one year forecast horizon error for each sliding window in the ARIMA model
+errors_2
+# estimated AICc for each sliding window in the ARIMA model
+aicc_2
+# one year forecast horizon error for each expanding window in the exponential smoothing model
+errors_3
+# estimated AICc for each expanding window in the exponential smoothing model
+aicc_3
+# one year forecast horizon error for each sliding window in the exponential smoothing model
+errors_4
+# estimated AICc for each sliding window in the exponential smoothing model
+aicc_4
+```
+
+```{r plot MAE}
+plot(1:12, colMeans(mae_1,na.rm=TRUE), type="l",col=1,xlab="horizon", ylab="MAE")
+lines(1:12, colMeans(mae_2,na.rm=TRUE), type="l",col=2)
+lines(1:12, colMeans(mae_3,na.rm=TRUE), type="l",col=3)
+lines(1:12, colMeans(mae_4,na.rm=TRUE), type="l",col=4)
+legend("topleft",legend=c("ARIMA - Expanding Window","ARIMA - Sliding Window", 'ETS - Expanding Window', "ETS - Sliding Window"),col=1:4, lty=1)
+```
+```{r plot RMSE}
+plot(1:12, colMeans(rmse_1,na.rm=TRUE), type="l",col=1,xlab="horizon", ylab="RMSE", ylim=c(28,34))
+lines(1:12, colMeans(rmse_2,na.rm=TRUE), type="l",col=2)
+lines(1:12, colMeans(rmse_3,na.rm=TRUE), type="l",col=3)
+lines(1:12, colMeans(rmse_4,na.rm=TRUE), type="l",col=4)
+legend("topleft",legend=c("ARIMA - Expanding Window","ARIMA - Sliding Window", 'ETS - Expanding Window', "ETS - Sliding Window"),col=1:4, lty=1)
+```
+
+```{r plot aicc}
+plot(1:(n-min_samples), aicc_1, type="l",col=1,xlab="iteration", ylab="AICc", ylim=c(-800,3200))
+lines(1:(n-min_samples), aicc_2, type="l",col=2)
+lines(1:(n-min_samples), aicc_3, type="l",col=3)
+lines(1:(n-min_samples), aicc_4, type="l",col=4)
+legend("topleft",legend=c("ARIMA - Expanding Window","ARIMA - Sliding Window", 'ETS - Expanding Window', "ETS - Sliding Window"),col=1:4, lty=1)
+```
+The ARIMA model with a sliding window generally has the lowest MAE, RMSE, and AICc, followed by the ARIMA model with an expanding window, the exponential smoothing model with a sliding window, and the exponential smoothing model with an expanding window. In the AICc graph, it is especially apparent that he ARIMA model is a better fit to the training data since the expanding window and sliding window trend lines are much lower than those of the exponential smoothing models. The RMSE graph shows a similar pattern where the ARIMA models outperform the exponential smoothing models, until around November when the exponential smoothing model with the sliding window outperforms the ARIMA model with the expanding window. In the MAE graph, the ARIMA model with the sliding window performs the best, and the exponential smoothing model with the expanding window performs the worst, while the other two models are approximately equivalent. These graphs act as supporting evidence that the ARIMA model is a better representation of the time series.
+
+## Question 4
+One drawback of this approach is that the data becomes more sparse at later iterations since there is not enough data to support the given window size. To handle this shortcoming, we could use bootstrapping to sample with replacement. Furthermore, we only tested the ARIMA(1,0,1)(0,1,2)[12] model and exponential smoothing MAM model with cross validation. In addition to these, we could test additional ARIMA models and exponential smoothing models, especially those found in question 2: ARIMA(0,1,1)(2,1,1)[12] and exponential smoothing wtih alpha=0.61, beta=0.001, and gamma=0.16.

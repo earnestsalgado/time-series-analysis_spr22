@@ -1,0 +1,126 @@
+---
+title: "Assignment 5"
+author: "Emily MacQuarrie"
+date: "2/16/2022"
+output: word_document
+---
+
+```{r libraries}
+library(tseries)
+library(forecast)
+library(ggplot2)
+```
+
+## Question 1
+```{r data}
+load("./condmilk.rda")
+# split data
+train <- window(condmilk, start=c(1971, 1), end=c(1979, 12))
+test <- window(condmilk, start=c(1980, 1), end=c(1980, 12))
+```
+## Question 1
+```{r plot}
+plot(train)
+BoxCox.lambda(train)
+train_bc <- BoxCox(train, lambda = -0.4)
+plot(train_bc)
+```
+A Box-Cox transformation appears to be necessary since the variance of the data seems to possibly be decreasing over time. When we calculate the lambda for Box-Cox, results tell us that lambda is -0.4. This supports the claim that a transformation is necessary. After plotting the transformed data, the variance appears to be more consistent over time. $x+y=0$
+
+## Question 3
+```{r stationarity}
+# remove seasonality through differencing
+train_bc_sea <- diff(train_bc, lag=12, differences=1)
+train_sea <- diff(train, lag=12, differences=1)
+# test for stationarity
+kpss.test(train_sea, null="Level")
+adf.test(train_sea)
+kpss.test(train_bc_sea, null="Level")
+adf.test(train_bc_sea)
+# apply one degree differencing
+train_bc_sea_diff1 <- diff(train_bc_sea, differences=1)
+kpss.test(train_bc_sea_diff1, null="Level")
+adf.test(train_bc_sea_diff1)
+train_sea_diff1 <- diff(train_sea, differences=1)
+kpss.test(train_sea_diff1, null="Level")
+adf.test(train_sea_diff1)
+
+# plot data
+tsdisplay(train_bc_sea_diff1)
+```
+The data does appears to be yearly seasonal, according to the plot. Therefore, we will perform seasonal differencing with a lag of 12.
+
+After performing this seasonal differencing, the training data is stationary according to the KPSS test since the null hypothesis cannot be rejected. The Box-Cox transformed data is also stationary based on the KPSS test. However, for the ADF test, the null hypothesis cannot be rejected, so we can say that both the untransformed and transformed data is non-stationary. Therefore, we should explore whether differencing will make the data stationary. As it turns out, a one-degree level of differencing passes the KPSS and ADF test for stationarity for both the transformed and untransformed data. From this point on, we will stick with the Box-Cox transformed data.
+
+The data looks stationary in the ACF and PACF plots because the data does not decrease exponentially after we perform differencing.
+
+## Question 4
+```{r arima}
+ar1 <- auto.arima(train_bc, seasonal = TRUE)
+ar1
+
+ar2 <- auto.arima(train_bc, d=1, D=1, seasonal = TRUE)
+ar2
+```
+Based on the results of the auto.arima function, the best seasonal ARIMA model has p=1, d=0, q=0, P=2, D=1, Q=0, and s=12. In other words, no differencing is necessary for the non-seasonal part, but a one-degree seasonal differencing is recommended. It also recommends an first-order non-seasonal AR model and a second-order seasonal AR model. The AICc value is -414.88, and the BIC value is -405.07. 
+
+When we set d=1 and D=1, auto.arima recommends a seasonal ARIMA model has p=1, d=1, q=1, P=2, D=1, Q=0, and s=12. This suggests a non-seasonal, first-order AR part, a first-order MA part, and a seasonal, second-order AR part. The AICc value is -404.05, and the BIC value is -391.95. Therefore, this model 1 performs better than this model since model 1 had lower AICc and BIC values. 
+
+## Question 5
+```{r acf}
+checkresiduals(ar1)
+checkresiduals(ar2)
+```
+The Ljung-Box test on the first model has a p-value of 0.07, so we accept the null hypothesis. This implies that the time series is independently distributed. The ACF model shows high autocorrelation at lags 5 and 36, but all other lags appear to be not significantly autocorrelated.
+
+The Ljung-Box test on the second model has a p-value of 0.04, so we reject the null hypothesis. This implies that the time series is not independently distributed. The ACF model shows high autocorrelation at lags 5 and 36 again, but all other lags appear to be not significantly autocorrelated. However, the lags generally appear to have higher autocorrelation than those of model 1. Therefore, model 1 seems to be better suited to the data, which aligns with our hypothesis derived from Part 4.
+
+## Question 6
+```{r forecast}
+# model 1 forecast for 12 months of 1980
+fc1 <- forecast(ar1, h=12)
+# model 2 forecast for 12 months of 1980
+fc2 <- forecast(ar2, h=12)
+
+fc1_inv <- InvBoxCox(fc1$mean, lambda=-0.4)
+fc2_inv <- InvBoxCox(fc2$mean, lambda=-0.4)
+
+autoplot(test) +
+  autolayer(fc1_inv, series="ARIMA(1,0,0)(2,1,0)[12] ") +
+  ggtitle("Forecasts for 1980") +
+  xlab("Year")
+
+autoplot(test) +
+  autolayer(fc2_inv, series="ARIMA(1,1,1)(2,1,0)[12] ") +
+  ggtitle("Forecasts for 1980") +
+  xlab("Year")
+```
+
+## Question 7
+```{r evaluation}
+# evaluation stats for model 1
+accuracy(fc1_inv, test)
+# MSE for model 1
+mean((fc1_inv - test)^2)
+# evaluation stats for model 2
+accuracy(fc2_inv, test)
+# MSE for model 2
+mean((fc2_inv - test)^2)
+```
+The first model has a MAPE of 18.48 and an MSE of 303.49. The second model has a MAPE of 18.52 and an MSE of 303.58. The first model has a lower MAPE and MSE. Therefore, it is a better estimate of the Manufacturer's Stocks fore each month of 1980.
+
+## Question 8
+```{r snaive}
+sn <- snaive(train, lambda=-0.4, h=12)
+# plot results
+autoplot(test) +
+  autolayer(sn$mean, series="Seasonal Naive ") +
+  ggtitle("Forecasts for 1980") +
+  xlab("Year")
+# evaluation stats for seasonal naive
+accuracy(sn, test)
+# MSE for seasonal naive
+mean((sn$mean - test)^2)
+```
+The MAPE for the seasonal naive model is 17.98, and the MSE is 277.83. Therefore, the seasonal naive method is a better forecast than either of the ARIMA models.
+
